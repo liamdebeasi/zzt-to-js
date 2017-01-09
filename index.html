@@ -1,0 +1,517 @@
+<!-- yes I realize this is a mess, I promise to clean it up later :-) -->
+<style>
+    #left {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 50%;
+        width: 50%;
+    }
+    #right {
+        position: fixed;
+        right: 0;
+        top: 0;
+        height: 50%;
+        width: 50%;
+    }
+    #bottom {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        height: 50%;
+        width: 100%;
+        border-top: 1px solid black;
+    }
+    .section {
+        float: left;
+        width: calc(20% - 1px);
+        height: 100%;
+        border-right: 1px solid black;
+        overflow: scroll;
+    }
+    .section h1 {
+        text-align: center;
+        font-size: 22px;
+        font-family: sans-serif;
+    }
+    
+    #text {
+        display: none;
+    }
+    
+    .section .console {
+        padding: 5px 10px;
+    }
+    textarea {
+        position: fixed;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        height: 50%;
+        width: 50%;
+        padding: 40px 10px;
+    }
+    
+    button {
+        position: absolute;
+    }
+    
+    #text {
+        position: absolute;
+        left: 0;
+        right: 0;
+        margin: 0px;
+        top: 0;
+        height: 50px;
+        line-height: 50px;
+        background-color: rgba(255,255,255,0.9);
+    }
+    .Player {
+        width: 50px;
+        height: 50px;
+        background-color: red;
+    }
+    
+    .PlayerStats {
+        position: absolute;
+        bottom: 0;
+        padding: 20px;
+        background: #eee;
+        width: 100%;
+    }
+    
+    .Text {
+        text-align: left;
+        font-family: sans-serif;
+        margin: 0px;
+    }
+    
+    .CenteredText {
+        text-align: center;
+        font-family: sans-serif;
+        margin: 0px;
+        font-weight: bold;
+    }
+</style>
+
+<link href="ui.css" rel="stylesheet">
+<link href="structure.css" rel="stylesheet">
+<link href="theme.css" rel="stylesheet">
+
+<body>
+    
+    <div id="left">
+        <div id="game-elements">
+            <div id="dialog" title="Message"></div>
+            <div id="text"></div>
+        </div>
+        <div id="game-board">
+            <div class="Player" id="Liam"></div>
+            <div class="PlayerStats"></div>
+        </div>
+        
+    </div>
+    <div id="right">
+        <textarea id="textarea">#GIVE AMMO 10
+#GIVE HEALTH 20
+#GIVE GEMS 123
+#TAKE GEMS 12
+$You will die now
+#DIE</textarea>
+        <button onclick="compile()">COMPILE</button>
+    </div>
+    
+    <div id="bottom">
+        <div class="section" id="errors">
+            <h1>Errors</h1>
+            <div class="console"></div>
+        </div>
+        <div class="section" id="lexer">
+            <h1>Lexer Output</h1>
+            <pre class="console"></pre>
+        </div>
+        <div class="section" id="parser">
+            <h1>Parser Output</h1>
+            <pre class="console"></pre>
+        </div>
+        <div class="section" id="transformer">
+            <h1>Transformer Output</h1>
+            <pre class="console"></pre>
+        </div>
+        <div class="section" id="generator">
+            <h1>Generator Output</h1>
+            <pre class="console"></pre>
+        </div>
+    </div>
+    
+</body>
+
+<script src="jquery.js"></script>
+<script src="jquery-ui.js"></script>
+
+<script>
+    
+    var Players = {
+        "Liam": {
+            "health": 10,
+            "gems": 0,
+            "ammo": 0,
+            "alive": true
+        }
+    }
+    
+    var compiler = {}
+    compiler.VERSION = '0.0.1'
+    compiler.lexer = lexer
+    compiler.parser = parser
+    compiler.transformer = transformer
+    compiler.generator = generator
+    
+    compiler.compile = function(code) {
+        return this.generator(this.transformer(this.parser(this.lexer(code))))
+    }
+    
+    function lexer(code) {
+        var commands = {
+            '$': '$,',
+            '#': '#,'
+        }
+        
+        code = code.replace(/\$/g, '$,')
+        code = code.replace(/#/g, '#,')
+        
+        code = code.split(/[,\n]/gmi)
+            .filter(function (t) { return t.length > 0 })
+            .map(function (t) {
+                if (t in commands) {
+                    return { type: 'command', value: t }
+                } else { 
+                    return { type: 'word', value: t}
+                }
+            })
+            
+        success('lexer', code);
+        
+        return code
+    }
+    
+    function parser(tokens) {
+        var AST = {
+            type: 'ZZT',
+            body: []
+        }
+    
+        //console.log(tokens)
+    
+        //extract a token at a time as current_token. Loop until we are out of tokens
+        while (tokens.length > 0) {
+            var current_token = tokens.shift()
+            
+            // since number token does not do anything by itself, we only analyze syntax when we find a word
+            if (current_token.type === 'command') {
+                switch(current_token.value[0]) {
+                    case '$':
+                        var expression = {
+                            type: 'CallExpression',
+                            name: 'Text',
+                            arguments: []
+                        }
+                        // if current token is CallExpression of type Text, next token should be a color argument
+                        var argument = tokens.shift()
+                        if (argument && argument.type === 'word') {
+                            expression.arguments.push({ // add argument information to expression object
+                                type: 'StringLiteral',
+                                value: (argument.value).toString()
+                            })
+                            AST.body.push(expression) // push the expression object to body of our AST
+                        } else {
+                            error('Text command must be followed by some content.')
+                            throw 'Text command must be followed by some content.'
+                        }
+                        break
+                    case '#':
+                        var expression = {
+                            type: 'CallExpression',
+                            name: 'Command',
+                            arguments: []
+                        }
+                        
+                        var argument = tokens.shift()
+                        if (argument && argument.type === 'word') {
+                            expression.arguments.push({ // add argument information to expression object
+                                type: 'ArrayLiteral',
+                                value: (argument.value).split(' ')
+                            })
+                            AST.body.push(expression)
+                        } else {
+                            error('Command must be followed by some command name.')
+                            throw 'Command must be followed by some command name.'
+                        }
+                        break
+                }
+            } else {
+                var expression = {
+                    type: 'CallExpression',
+                    name: 'MultilineText',
+                    arguments: []
+                }
+                
+                // if current token is CallExpression of type Text, next token should be a color argument
+                if (current_token) {
+                    expression.arguments.push({ // add argument information to expression object
+                        type: 'StringLiteral',
+                        value: (current_token.value).toString()
+                    })
+                    AST.body.push(expression) // push the expression object to body of our AST
+                } else {
+                    error('MultilineText command must be followed by some content.')
+                    throw 'MultilineText command must be followed by some content.'
+                }                    
+            }
+        }
+        
+        success('parser', AST);
+        
+        return AST
+    }
+    
+    function transformer(ast) {
+        var html = {
+            tag: 'div',
+            body: []
+        }
+                
+        // Extract a call expression at a time as 'node'. Loop until we are out of expressions in body
+        while (ast.body.length > 0) {
+            var node = ast.body.shift()
+            switch (node.name) {
+                case 'Text':
+                    html.body.push({ // add rect element info to svg_ast's body
+                        function: 'Text',
+                        params: {
+                            type: 'CenteredText',
+                            data: node.arguments[0].value
+                        }                    
+                    })
+                    break
+                case 'MultilineText':
+                    html.body.push({ // add rect element info to svg_ast's body
+                        function: 'Text',
+                        params: {
+                            type: 'Text',
+                            data: node.arguments[0].value
+                        }
+                    })
+                    break
+                
+                case 'Command':
+                    
+                    var count = (node.arguments[0].value.length - 1).toString();
+                    var playerTmp = Players["Liam"];
+                
+                    switch(node.arguments[0].value[0]) {
+                        case "DIE":
+                            html.body.push({ // add rect element info to svg_ast's body
+                                function: 'ChangePlayerObject',
+                                params: {
+                                    player: 'Liam',
+                                    key: "health",
+                                    value: 0
+                                }
+                            })
+                            break
+                        case "GIVE":
+                            
+                            var items = {
+                                "ammo": true,
+                                "gems": true,
+                                "health": true
+                            }
+                        
+                            if (node.arguments[0].value.length < 3) {
+                                error('GIVE command expects 2 paramters, ' + count + ' given');
+                                throw 'GIVE command expects 2 paramters, ' + count + ' given'
+                            } else {
+                                
+                                var itemName = node.arguments[0].value[1].toLowerCase();
+                                                                
+                                // make sure is valid item
+                                if (itemName in items == false) {
+                                    error('Invalid item');
+                                    throw 'Invalid item'
+                                }
+                                
+                                if (isNaN(node.arguments[0].value[2]) || parseInt(node.arguments[0].value[2]) < 0) {
+                                    error('Invalid item count');
+                                    throw 'Invalid item count'
+                                }
+                                
+                                var newCount = parseInt(playerTmp[itemName] + parseInt(node.arguments[0].value[2]));
+                                
+                                html.body.push({ // add rect element info to svg_ast's body
+                                    function: 'ChangePlayerObject',
+                                    params: {
+                                        player: 'Liam',
+                                        key: itemName,
+                                        value: newCount
+                                    }
+                                })
+                                
+                                playerTmp[itemName] = newCount;
+                            }
+                            break
+                        case "TAKE":
+                            var items = {
+                                "ammo": true,
+                                "gems": true,
+                                "health": true
+                            }
+                                                    
+                            if (node.arguments[0].value.length != 3) {
+                                error('TAKE command expects 2 paramters, ' + count + ' given. Note: Message is not support at this time');
+                                throw 'TAKE command expects 2 paramters, ' + count + ' given. Note: Message is not support at this time'
+                            } else {
+                                
+                                var itemName = node.arguments[0].value[1].toLowerCase();
+                                                            
+                                // make sure is valid item
+                                if (itemName in items == false) {
+                                    error('Invalid item "' + itemName + '"');
+                                    throw 'Invalid item "' + itemName + '"'
+                                }
+                                
+                                if (isNaN(node.arguments[0].value[2]) || parseInt(node.arguments[0].value[2]) < 0) {
+                                    error('Invalid item count');
+                                    throw 'Invalid item count'
+                                }
+                                
+                                
+                                var itemCount = parseInt(playerTmp[itemName]);
+                                var countToAdd = parseInt(node.arguments[0].value[2]);
+                                var newCount = itemCount - countToAdd;
+                                
+                                if (newCount < 0) {
+                                    html.body.push({ // add rect element info to svg_ast's body
+                                        function: 'Text',
+                                        params: {
+                                            type: 'CenteredText',
+                                            data: "You don't have enough " + itemName + "!"
+                                        }                    
+                                    })
+                                } else {
+                                    html.body.push({ // add rect element info to svg_ast's body
+                                        function: 'ChangePlayerObject',
+                                        params: {
+                                            player: 'Liam',
+                                            key: itemName,
+                                            value: itemCount - countToAdd
+                                        }
+                                    })
+                                    playerTmp[itemName] = newCount;
+                                }
+                                                                
+                                
+                                
+                            }
+                            break
+                        
+                        default:
+                            error('Unknown command.')
+                            throw 'Unknown command.'
+                            break
+                    }
+                    break
+            }
+        }
+        
+        success('transformer', html);
+        
+        return html
+    }
+    
+    function generator(html) {
+        console.log(html)
+        function createAttrString (attr) {
+            var count = Object.keys(attr).length;
+            return Object.keys(attr).map(function (key){
+                if (count == 1) {
+                    count--;
+                    return '"' + attr[key] + '"'
+                } else {
+                    count--;
+                    return '"' + attr[key] + '"' + ','
+                }
+                
+            }).join(' ')
+        }
+                
+        // for each elements in body of svg_ast, generate svg tag
+        var elements = html.body.map(function (node) {
+            return node.function + '(' + createAttrString(node.params) + ')'
+        }).join('\n\t')
+        
+        success('generator', elements);
+        // wrap with open and close svg tag to complete SVG code
+        return elements
+    }
+    
+    function error(msg) {
+        $('#errors .console').append('<p>' + msg + '</p>');
+    }
+    
+    function success(type, output) {
+        if (typeof(output) ==='string') {
+            var res = output;
+        } else {
+            var res = JSON.stringify(output, null, 2);
+        }
+        
+        $('#' + type + ' .console').html(res);
+    }
+    
+    function compile() {
+        $('#errors .console, #lexer .console, #parser .console, #transformer .console, #generator .console, #text').empty();
+        $('#text').hide();
+        Players['Liam'] = {
+            "health": 10,
+            "gems": 0,
+            "ammo": 0,
+            "alive": true
+        }
+        
+        $('#Liam').show();
+        
+        var code = document.getElementById('textarea').value; 
+        try { eval(compiler.compile(code)) } catch(e) { console.log(e) }
+        $('.PlayerStats').html(JSON.stringify(Players['Liam'], null, 2))
+    }
+    
+    function Text(type, data) {
+        switch(type) {
+            case "CenteredText":
+                $('#text').html('<p class="CenteredText">' + data + '</p>');
+                break
+            case "Text":
+                $('#dialog').html(data);
+                $('#dialog').dialog();
+                break
+        }
+        
+        $('#text').show().delay(5000).fadeOut(250);
+    }
+    
+    function ChangePlayerObject(player, key, value) {
+                
+        if (key == 'gems' || key == 'ammo' || key == 'health') {
+            value = parseInt(value);
+        }
+        Players[player][key] = value;
+        
+        if (Players[player].health == 0) {
+            Players[player].alive = false;
+            $('#' + player).hide();
+        }
+        
+        console.log(Players[player]);
+    }
+</script>
